@@ -1,16 +1,28 @@
 ---
+title: "PCA, UMAP and Hierarchical Clustering Boeva Neuroblastoma Cells"
+author: "Gepoliano Chaves"
+date: "February 25, 2021"
 output:
-  pdf_document: default
-  html_document: default
+  html_document:
+    df_print: paged
+    toc: yes
+    number_sections: no
+    toc_depth: 5
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '5'
 ---
+
+
 
 # Objectives of Analysis
 
-This notebook aims to show how to use RNA-Seq data to compare Hierarchical Clustering, Principal Component, Uniform Manifold Approximation and Projection (UMAP) analysis for the classification of cells derived from pediatric cancer neuroblastoma, described in a research article by Boeva et al., 2017. This article brings the concept of neuroblatoma as a heterogeneous tumor composed basically of two distict cell populations: adrenergic and mesenchymal cells. Adrenergic cells represent a group of differentiated cells which are more easily targeted by chemotherapy than mesenchymal cells. On the other hand, chemotherapy treatments may leave Minimal Residual Disease cells which are resistant to chemotherapy and allow disease progression. One possible therapeutic venue is the use of drugs that break the homestatic equilibrium between the adrenergic and mesenchymal state of cells and make cells become more differentiated adrenergic cells.
+This notebook aims to show how to use RNA-Seq data to compare Hierarchical Clustering, Principal Component, Uniform Manifold Approximation and Projection (UMAP) analysis for the classification of cells derived from pediatric cancer neuroblastoma, described in a research article by Boeva et al., 2017. The article brings the concept of neuroblatoma as a heterogeneous tumor composed basically of two distict cell populations: adrenergic and mesenchymal cells. Adrenergic cells represent a group of differentiated cells in the neuroblastoma tumor, which are more easily targeted by chemotherapy than mesenchymal cells. On the other hand, chemotherapy may leave Minimal Residual Disease in the form of mesenchymal cells which may lead to disease progression. One possible therapeutic venue is the use of drugs that break the homestatic equilibrium between the adrenergic and mesenchymal states of cells and make cells become more differentiated, or turn mesenchymal cells into adrenergic cells.
 
 # 1) Creating Analysis folders
 
-File organization is essential for clear and neat analysis steps. The chunk bellow creates folders for the data, plots and results.
+File organization is essential for clear and neat procedure steps. The chunk bellow creates folders for the data, plots and results in the same directory where the Rmd notebook is saved.
 
 ```{r}
 # Create the data folder if it doesn't exist
@@ -36,23 +48,21 @@ if (!dir.exists(results_dir)) {
 ```
 
 
-## Check out our file structure!
+## 1. 2) Check File Structure
 
-Your new analysis folder should contain:
+The analysis folder, downloaded from GitHub, where the Rmd notebook is saved, should contain:
 
-- The example analysis `.Rmd` you downloaded  
+- The example analysis `.Rmd` downloaded  
 - A folder called "data" which contains:
-  - The `SRP133573` folder which contains:
-    - The gene expression  
-    - The metadata TSV
+  - The `Boeva` folder which contains:
+    - The gene expression file GSE90683_Log2FPKMExpressionSummary.txt
+    - The metadata file metadata_Boeva_Modified.txt
 - A folder for `plots` (currently empty)  
 - A folder for `results` (currently empty)  
 
-Your example analysis folder should now look something like this (except with respective experiment accession ID and analysis notebook name you are using):
+Your example analysis folder should now look something like this.
 
-<img src="https://github.com/AlexsLemonade/refinebio-examples/raw/40e47f4d3f39283effbd9843a457168061be9680/template/screenshots/analysis-folder-structure.png" width=400>
-
-In order for our example here to run without a hitch, we need these files to be in these locations so we've constructed a test to check before we get started with the analysis.
+In order for the example here to run without a hitch, we need these files to be in these locations. The next chunks are a test to check before we get started with the analysis.
 These chunks will declare your file paths and double check that your files are in the right place. 
 
 First we will declare our file paths to our data and metadata files, which should be in our data directory.
@@ -102,6 +112,17 @@ if (!("umap" %in% installed.packages())) {
   # Install umap package
   BiocManager::install("umap", update = FALSE)
 }
+
+if (!("ggfortify" %in% installed.packages())) {
+  # Install ggfortify package
+  BiocManager::install("ggfortify", update = FALSE)
+}
+
+if (!("pheatmap" %in% installed.packages())) {
+  # Install pheatmap package
+  BiocManager::install("pheatmap", update = FALSE)
+}
+
 ```
 
 Attach packages used in this analysis:
@@ -119,6 +140,12 @@ library(ggplot2)
 # We will need this so we can use the pipe: %>%
 library(magrittr)
 
+# Attach the `ggfortify` library for PCA using prcomp()
+library(ggfortify)
+
+# Attach the `pheatmap` library for PCA using prcomp()
+library(pheatmap)
+
 # Set the seed so our results are reproducible:
 set.seed(12345)
 ```
@@ -130,7 +157,7 @@ In the chunk bellow, the gene expression table needs to be downloaded from the G
 ```{r}
 # Read in metadata TSV file and gene expression data-frame file.
 metadata <- readr::read_tsv(metadata_file)
-data_file <- file.path(data_dir, "GSE90683_Log2FPKMExpressionSummary.txt")
+data_file <- file.path(data_dir, "GSE90683_Log2FPKMExpressionSummary.txt") ## repeated from second chunk
 
 # Original code from ALSF:
 # Read in data TSV file
@@ -178,7 +205,7 @@ Set minimum of counts to be used in analysis.
 
 ```{r}
 filtered_expression_df <- expression_df %>%
-  dplyr::filter(rowSums(.) >= 10)
+  dplyr::filter(rowSums(.) >= 100)
 ```
 
 Counts need to be rounded before their values are passed to `DESeqDataSetFromMatrix()` function.
@@ -199,14 +226,14 @@ dds <- DESeqDataSetFromMatrix(
 )
 ```
 
-# 3) DESeq Analysis
+# 3) PCA with DESeq
+
+## 3.1) PCA with DESeq
 
 ```{r}
 combinedDNAHTSeq<- DESeq(dds)
 summary(combinedDNAHTSeq)
 ```
-
-## 3.1) PCA NBLS as Intermediate
 
 ```{r, warning=F, message=F}
 vst_Boeva <- vst(combinedDNAHTSeq, blind=FALSE)
@@ -214,4 +241,62 @@ vst_Boeva <- vst(combinedDNAHTSeq, blind=FALSE)
 plotPCA(vst_Boeva, intgroup = c("refinebio_accession_code"))
 colData(dds)
 ```
+
+
+## Hieracrchical Clustering Heatmap
+
+```{r}
+## Set counts threshold to 100 for ease of plotting
+library(pheatmap)
+pheatmap(assay(vst_Boeva), cutree_cols = 7)
+```
+
+
+
+## 3.2) Plot PCA using expression_df object
+
+```{r}
+pca_res <- prcomp(t(expression_df[, -1]))
+autoplot(pca_res, label = TRUE, label.size = 4)
+```
+
+
+# References
+
+## PCA plots
+
+### PCA GGfortify
+
+https://cran.r-project.org/web/packages/ggfortify/vignettes/plot_pca.html
+
+### PCA datacarpentry
+
+https://tavareshugo.github.io/data-carpentry-rnaseq/03_rnaseq_pca.html
+
+https://tavareshugo.github.io/data-carpentry-rnaseq/
+
+https://github.com/tavareshugo/data-carpentry-rnaseq/find/master
+
+https://datacarpentry.org/R-ecology-lesson/
+
+
+
+## UMAP plots Alexe's Lemonade Stand Foundation
+
+https://github.com/AlexsLemonade/refinebio-examples
+
+https://alexslemonade.github.io/refinebio-examples/03-rnaseq/dimension-reduction_rnaseq_02_umap.html#analysis
+
+### UMAP Plots Tutorial with iris dataset, requires R function
+
+https://cran.r-project.org/web/packages/umap/vignettes/umap.html
+
+
+### UMAP Package
+
+https://github.com/lmcinnes/umap#installing
+
+### UMAPR Package
+https://github.com/ropenscilabs/umapr
+
 
