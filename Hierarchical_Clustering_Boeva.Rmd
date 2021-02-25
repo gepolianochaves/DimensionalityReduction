@@ -1,0 +1,217 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Objectives of Analysis
+
+This notebook aims to show how to use RNA-Seq data to compare Hierarchical Clustering, Principal Component, Uniform Manifold Approximation and Projection (UMAP) analysis for the classification of cells derived from pediatric cancer neuroblastoma, described in a research article by Boeva et al., 2017. This article brings the concept of neuroblatoma as a heterogeneous tumor composed basically of two distict cell populations: adrenergic and mesenchymal cells. Adrenergic cells represent a group of differentiated cells which are more easily targeted by chemotherapy than mesenchymal cells. On the other hand, chemotherapy treatments may leave Minimal Residual Disease cells which are resistant to chemotherapy and allow disease progression. One possible therapeutic venue is the use of drugs that break the homestatic equilibrium between the adrenergic and mesenchymal state of cells and make cells become more differentiated adrenergic cells.
+
+# 1) Creating Analysis folders
+
+File organization is essential for clear and neat analysis steps. The chunk bellow creates folders for the data, plots and results.
+
+```{r}
+# Create the data folder if it doesn't exist
+if (!dir.exists("data")) {
+  dir.create("data")
+}
+
+# Define the file path to the plots directory
+plots_dir <- "plots"
+
+# Create the plots folder if it doesn't exist
+if (!dir.exists(plots_dir)) {
+  dir.create(plots_dir)
+}
+
+# Define the file path to the results directory
+results_dir <- "results"
+
+# Create the results folder if it doesn't exist
+if (!dir.exists(results_dir)) {
+  dir.create(results_dir)
+}
+```
+
+
+## Check out our file structure!
+
+Your new analysis folder should contain:
+
+- The example analysis `.Rmd` you downloaded  
+- A folder called "data" which contains:
+  - The `SRP133573` folder which contains:
+    - The gene expression  
+    - The metadata TSV
+- A folder for `plots` (currently empty)  
+- A folder for `results` (currently empty)  
+
+Your example analysis folder should now look something like this (except with respective experiment accession ID and analysis notebook name you are using):
+
+<img src="https://github.com/AlexsLemonade/refinebio-examples/raw/40e47f4d3f39283effbd9843a457168061be9680/template/screenshots/analysis-folder-structure.png" width=400>
+
+In order for our example here to run without a hitch, we need these files to be in these locations so we've constructed a test to check before we get started with the analysis.
+These chunks will declare your file paths and double check that your files are in the right place. 
+
+First we will declare our file paths to our data and metadata files, which should be in our data directory.
+This is handy to do because if we want to switch the dataset (see next section for more on this) we are using for this analysis, we will only have to change the file path here to get started. 
+
+```{r}
+# Define the file path to the data directory
+# Replace with the path of the folder the files will be in
+data_dir <- file.path("data", "Boeva")
+
+# Declare the file path to the gene expression matrix file
+# inside directory saved as `data_dir`
+# Replace with the path to your dataset file
+data_file <- file.path(data_dir, "GSE90683_Log2FPKMExpressionSummary.txt")
+
+# Declare the file path to the metadata file
+# inside the directory saved as `data_dir`
+# Replace with the path to your metadata file
+metadata_file <- file.path(data_dir, "metadata_SRP133573.tsv")
+metadata_file <- file.path(data_dir, "metadata_Boeva_Modified.txt")
+```
+
+Now that our file paths are declared, we can use the `file.exists()` function to check that the files are where we specified above. 
+
+```{r}
+# Check if the gene expression matrix file is at the path stored in `data_file`
+file.exists(data_file)
+
+# Check if the metadata file is at the file path stored in `metadata_file`
+file.exists(metadata_file)
+```
+
+
+# 2) UMAP Visualization - RNA-seq
+
+## Install libraries
+
+We will use libraries DESeq2 umap, ggplot2 and magrittr. If you do not have the libraries installed, install them. If you have these libraries installed, you can skip this step.
+
+```{r}
+if (!("DESeq2" %in% installed.packages())) {
+  # Install DESeq2
+  BiocManager::install("DESeq2", update = FALSE)
+}
+
+if (!("umap" %in% installed.packages())) {
+  # Install umap package
+  BiocManager::install("umap", update = FALSE)
+}
+```
+
+Attach packages used in this analysis:
+
+```{r message=FALSE}
+# Attach the `DESeq2` library
+library(DESeq2)
+
+# Attach the `umap` library
+library(umap)
+
+# Attach the `ggplot2` library for plotting
+library(ggplot2)
+
+# We will need this so we can use the pipe: %>%
+library(magrittr)
+
+# Set the seed so our results are reproducible:
+set.seed(12345)
+```
+
+## Import and set up data
+
+In the chunk bellow, the gene expression table needs to be downloaded from the Gene Expression Omnibus or used directly from this repository. It was not possible to import the gene expression data-frame using the exact same code provided in the original ALSF Rmd notebook, because that was giving an error due to duplicated gene names. The 
+
+```{r}
+# Read in metadata TSV file and gene expression data-frame file.
+metadata <- readr::read_tsv(metadata_file)
+data_file <- file.path(data_dir, "GSE90683_Log2FPKMExpressionSummary.txt")
+
+# Original code from ALSF:
+# Read in data TSV file
+# First time, there was this error: Error in `.rowNamesDF<-`(x, value = value) : duplicate 'row.names' are not allowed
+# expression_df <- readr::read_tsv(data_file, ) %>%
+# Tuck away the gene ID  column as row names, leaving only numeric values
+#  tibble::column_to_rownames("gene")
+
+## Import gene expression data-frame using the entire path provided by downloading our repository.
+expression_df <- read.table("data/Boeva/GSE90683_Log2FPKMExpressionSummary.txt", header = T)
+## This way of gene expression data-frame upload needs to deal with the duplicated gene names problem.
+## Need to remove repeated gene names with line of code bellow.
+## Remove duplicated rows
+expression_df <- expression_df[!duplicated(expression_df$gene), ]
+## Name rows with gene names
+rownames(expression_df) <- expression_df$gene
+## Remove Gene Extra-column
+expression_df <- subset(expression_df, select = -c(gene))
+```
+
+Check that metadata and data are in the same sample order.
+
+```{r}
+# Make the data in the order of the metadata
+expression_df <- expression_df %>%
+  dplyr::select(metadata$refinebio_accession_code)
+
+# Check if this is in the same order
+all.equal(colnames(expression_df), metadata$refinebio_accession_code)
+```
+
+Choose metadata annotation columns to be used in analysis.
+
+```{r}
+# convert the columns we will be using for annotation into factors
+metadata_metadata <- metadata %>%
+  dplyr::select( # select only the columns that we will need for plotting
+    refinebio_accession_code,
+    refinebio_treatment,
+    refinebio_disease
+  )
+```
+
+Set minimum of counts to be used in analysis.
+
+```{r}
+filtered_expression_df <- expression_df %>%
+  dplyr::filter(rowSums(.) >= 10)
+```
+
+Counts need to be rounded before their values are passed to `DESeqDataSetFromMatrix()` function.
+
+```{r}
+filtered_expression_df <- round(filtered_expression_df)
+```
+
+
+The chunck bellow creates `DESeqDataSet` object from gene expression data-frame as input. This highlights the DESeqDataSetFromMatrix function.
+
+```{r}
+dds <- DESeqDataSetFromMatrix(
+  countData = filtered_expression_df, # the counts values for all samples in our dataset
+  colData = metadata, # annotation data for the samples in the counts data frame
+  design = ~1 # Here we are not specifying a model
+  # Replace with an appropriate design variable for your analysis
+)
+```
+
+# 3) DESeq Analysis
+
+```{r}
+combinedDNAHTSeq<- DESeq(dds)
+summary(combinedDNAHTSeq)
+```
+
+## 3.1) PCA NBLS as Intermediate
+
+```{r, warning=F, message=F}
+vst_Boeva <- vst(combinedDNAHTSeq, blind=FALSE)
+## Plot PCA
+plotPCA(vst_Boeva, intgroup = c("refinebio_accession_code"))
+colData(dds)
+```
+
